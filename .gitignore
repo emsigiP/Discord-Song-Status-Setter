@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local environment configuration
+.env
+
+# PyInstaller / Build outputs
+build/
+dist/
+*.spec

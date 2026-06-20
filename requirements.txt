@@ -1,0 +1,6 @@
+winrt-Windows.Media.Control
+winrt-Windows.Foundation
+winrt-Windows.Foundation.Collections
+requests
+python-dotenv
+flask

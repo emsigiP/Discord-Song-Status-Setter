@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify Lyrics Discord Status Sync</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-color: #060813;
+            --card-bg: rgba(13, 17, 39, 0.6);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --spotify-green: #1db954;
+            --spotify-glow: rgba(29, 185, 84, 0.4);
+            --primary: #8b5cf6;
+            --primary-glow: rgba(139, 92, 246, 0.4);
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --success: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(29, 185, 84, 0.12) 0%, transparent 45%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+        }
+
+        /* Ambient background glow elements */
+        .ambient-glow {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: var(--primary);
+            filter: blur(120px);
+            opacity: 0.15;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: -1;
+            top: 20%;
+            left: 30%;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        @media (max-width: 850px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Glassmorphism Card Style */
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+            height: 100%;
+        }
+
+        .console-card {
+            grid-column: span 2;
+        }
+
+        @media (max-width: 850px) {
+            .console-card {
+                grid-column: span 1;
+            }
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Header Style */
+        .header {
+            grid-column: span 2;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(13, 17, 39, 0.4);
+            padding: 1.25rem 2rem;
+            border-radius: 20px;
+            border: 1px solid var(--card-border);
+        }
+
+        @media (max-width: 850px) {
+            .header {
+                grid-column: span 1;
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+        }
+
+        .header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #fff 0%, var(--primary) 35%, var(--spotify-green) 70%, #fff 100%);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            animation: textShine 5s linear infinite;
+        }
+
+        @keyframes textShine {
+            0% { background-position: 200% center; }
+            100% { background-position: 0% center; }
+        }
+
+        .header h1 i {
+            font-size: 1.5rem;
+            color: var(--spotify-green);
+            text-shadow: 0 0 15px var(--spotify-glow);
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 99px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            border: 1px solid transparent;
+        }
+
+        .status-badge.stopped {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .status-badge.running {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+            border-color: rgba(16, 185, 129, 0.3);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
+        }
+
+        .status-badge.pending {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+            display: inline-block;
+        }
+
+        .status-badge.running .status-dot {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.5; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.5; }
+        }
+
+        /* Form styling */
+        #settings-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-wrapper i {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 0.75rem 1rem 0.75rem 2.75rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus, input[type="password"]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 12px rgba(139, 92, 246, 0.2);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        /* Range Sliders */
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        input[type="range"] {
+            flex-grow: 1;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--primary-glow);
+            transition: background 0.3s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #a78bfa;
+        }
+
+        .slider-val {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        /* Custom Toggle Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            transition: .4s;
+            border-radius: 34px;
+            border: 1px solid var(--card-border);
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--primary);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+        }
+
+        .help-link {
+            font-size: 0.8rem;
+            color: var(--primary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            margin-top: 0.4rem;
+            align-self: flex-start;
+            transition: color 0.3s;
+            user-select: none;
+        }
+        
+        .help-link:hover {
+            color: #a78bfa;
+            text-decoration: underline;
+        }
+        
+        .help-box {
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            animation: slideDown 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.15);
+        }
+        
+        .help-box ol {
+            padding-left: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+        
+        .help-box code {
+            font-family: 'Fira Code', monospace;
+            background: rgba(255,255,255,0.06);
+            padding: 0.1rem 0.3rem;
+            border-radius: 4px;
+            color: #fff;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Buttons styling */
+        button {
+            width: 100%;
+            padding: 0.9rem;
+            border: none;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 15px var(--primary-glow);
+        }
+
+        .btn-primary:hover {
+            background: #7c3aed;
+            transform: translateY(-2px);
+        }
+
+        .btn-success {
+            background: var(--spotify-green);
+            color: black;
+            box-shadow: 0 4px 15px var(--spotify-glow);
+        }
+
+        .btn-success:hover {
+            background: #1ed760;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(29, 185, 84, 0.6);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+        }
+
+        /* Card Section Title */
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 0.5rem;
+        }
+
+        .section-title i {
+            color: var(--primary);
+        }
+
+        /* Now Playing Section */
+        .now-playing-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            position: relative;
+        }
+
+        .album-art-placeholder {
+            width: 60px;
+            height: 60px;
+            min-width: 60px;
+            background: linear-gradient(135deg, #1e1b4b, #311042);
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            color: var(--spotify-green);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .album-art-placeholder.active-track {
+            background: transparent;
+            box-shadow: none;
+            overflow: visible;
+        }
+
+        .album-art-placeholder i {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        /* Vinyl Record Styles */
+        .vinyl-container {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            opacity: 0;
+            transform: scale(0.8);
+            z-index: 5;
+        }
+
+        .vinyl-container.show {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .vinyl-disc {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: #111;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            box-shadow: 
+                0 4px 12px rgba(0, 0, 0, 0.5),
+                inset 0 0 6px rgba(255, 255, 255, 0.2);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            animation: vinyl-spin 3s linear infinite;
+            animation-play-state: paused;
+            transition: background-image 0.3s ease;
+        }
+
+        .vinyl-disc.spinning {
+            animation-play-state: running;
+        }
+
+        .vinyl-grooves {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            border-radius: 50%;
+            background: repeating-radial-gradient(
+                circle,
+                rgba(0, 0, 0, 0.4) 0px,
+                rgba(0, 0, 0, 0.4) 1px,
+                transparent 1px,
+                transparent 3px,
+                rgba(255, 255, 255, 0.05) 3px,
+                rgba(255, 255, 255, 0.05) 4px,
+                transparent 4px,
+                transparent 6px
+            );
+            pointer-events: none;
+            z-index: 3;
+            opacity: 0.8;
+        }
+
+        .vinyl-sheen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(
+                from 45deg,
+                transparent 0deg,
+                rgba(255, 255, 255, 0.12) 30deg,
+                transparent 60deg,
+                transparent 180deg,
+                rgba(255, 255, 255, 0.12) 210deg,
+                transparent 240deg,
+                transparent 360deg
+            );
+            pointer-events: none;
+            z-index: 4;
+        }
+
+        .vinyl-hole {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--bg-color);
+            box-shadow: 
+                inset 0 1px 2px rgba(0, 0, 0, 0.8),
+                0 0 0 2px rgba(0, 0, 0, 0.6),
+                0 0 0 3px rgba(255, 255, 255, 0.25);
+            z-index: 5;
+        }
+
+        @keyframes vinyl-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .track-details {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .track-title {
+            font-weight: 700;
+            font-size: 1rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-artist {
+            font-weight: 500;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Live Lyrics Section */
+        .lyrics-box {
+            min-height: 120px;
+            background: linear-gradient(135deg, rgba(29, 185, 84, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
+            border: 1px solid rgba(139, 92, 246, 0.15);
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            gap: 0.5rem;
+            position: relative;
+        }
+
+        .lyrics-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            font-weight: 700;
+        }
+
+        .lyric-text {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 0 12px rgba(255,255,255,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .lyric-text.empty {
+            color: var(--text-secondary);
+            font-style: italic;
+            font-size: 0.95rem;
+            text-shadow: none;
+        }
+
+        /* Animated Music Equalizer */
+        .equalizer {
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+            height: 20px;
+            width: 27px;
+        }
+
+        .equalizer-bar {
+            width: 3px;
+            height: 2px;
+            background: linear-gradient(to top, var(--spotify-green) 0%, #34d399 50%, var(--primary) 100%);
+            border-radius: 3px;
+            transition: height 0.2s ease;
+        }
+
+        /* Active equalizer state with non-repeating animations */
+        .equalizer.active .equalizer-bar:nth-child(1) {
+            animation: eq-bounce-tall 0.8s ease-in-out infinite alternate;
+        }
+        .equalizer.active .equalizer-bar:nth-child(2) {
+            animation: eq-bounce-mid 1.1s ease-in-out infinite alternate;
+            animation-delay: 0.15s;
+        }
+        .equalizer.active .equalizer-bar:nth-child(3) {
+            animation: eq-bounce-tall 0.65s ease-in-out infinite alternate;
+            animation-delay: 0.3s;
+        }
+        .equalizer.active .equalizer-bar:nth-child(4) {
+            animation: eq-bounce-short 0.95s ease-in-out infinite alternate;
+            animation-delay: 0.05s;
+        }
+        .equalizer.active .equalizer-bar:nth-child(5) {
+            animation: eq-bounce-mid 0.75s ease-in-out infinite alternate;
+            animation-delay: 0.4s;
+        }
+
+        @keyframes eq-bounce-tall {
+            0% { height: 2px; }
+            100% { height: 20px; }
+        }
+
+        @keyframes eq-bounce-mid {
+            0% { height: 3px; }
+            100% { height: 14px; }
+        }
+
+        @keyframes eq-bounce-short {
+            0% { height: 2px; }
+            100% { height: 9px; }
+        }
+
+        /* Logs Console Box */
+        .console-box {
+            font-family: 'Fira Code', monospace;
+            background: #03040b;
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1rem;
+            font-size: 0.8rem;
+            height: 180px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);
+        }
+
+        .console-box::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .console-box::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+        }
+
+        .console-line {
+            color: #10b981;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.75rem;
+            font-family: 'Fira Code', monospace;
+            color: var(--text-secondary);
+        }
+
+        .progress-bar-bg {
+            flex-grow: 1;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--spotify-green);
+            width: 0%;
+            transition: width 0.2s linear;
+            box-shadow: 0 0 8px var(--spotify-glow);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--success);
+            color: black;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            transform: translateY(150%);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 999;
+        }
+
+        .toast.error {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+        }
+
+        .toast.show {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient-glow"></div>
+    
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fa-brands fa-spotify"></i> Spotify Lyric Sync</h1>
+            <div id="status-badge" class="status-badge stopped">
+                <span class="status-dot"></span>
+                <span id="status-text">Stopped</span>
+            </div>
+        </div>
+
+        <!-- Left Column: Settings Form -->
+        <div class="glass-card">
+            <h2 class="section-title"><i class="fa-solid fa-gears"></i> Synchronizer Settings</h2>
+            
+            <form id="settings-form" onsubmit="saveSettings(event)">
+                <div class="form-group">
+                    <label for="discord-token"><i class="fa-solid fa-key"></i> Discord Authorization Token</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-lock"></i>
+                        <input type="password" id="discord-token" placeholder="Paste your Discord user authorization token..." required>
+                    </div>
+                    <span class="help-link" onclick="toggleHelp()"><i class="fa-regular fa-circle-question"></i> How do I get my token?</span>
+                    <div class="help-box" id="help-box" style="display:none;">
+                        <h3>Method 1: Using Developer Tools</h3>
+                        <ol>
+                            <li>Open <b>Discord in your web browser</b> (Chrome, Edge, Firefox, etc.) and log in.</li>
+                            <li>Press <b>F12</b> (or <code>Ctrl+Shift+I</code>) to open Developer Tools.</li>
+                            <li>Go to the <b>Network</b> tab at the top.</li>
+                            <li>Type <code>/api</code> in the filter/search box.</li>
+                            <li>Click on any server or channel in Discord to load some activity.</li>
+                            <li>Click on any network request that appears in the list (like <code>science</code>, <code>profile</code>, or <code>settings</code>).</li>
+                            <li>Look at the <b>Headers</b> tab on the right side, scroll down to <b>Request Headers</b>.</li>
+                            <li>Find the <b><code>authorization</code></b> header and copy the long string of text next to it.</li>
+                        </ol>
+                        <h3>Method 2: Using Automation Script (Security Risk - Prefer Method 1)</h3>
+                        <ol>
+                            <li>Open <b>Discord in your web browser</b> (Chrome, Edge, Firefox, etc.) and log in.</li>
+                            <li>Press <b>F12</b> (or <code>Ctrl+Shift+I</code>) to open Developer Tools.</li>
+                            <li>Go to the <b><code>Console</code></b> tab at the top.</li>
+                            <li>Paste the following code and press Enter:</li>
+                            <li><b><code>"window.webpackChunkdiscord_app.push([[Symbol()],{},o=>{for(let e of Object.values(o.c))try{if(!e.exports||e.exports===window)continue;e.exports?.getToken&&(token=e.exports.getToken());for(let o in e.exports)e.exports?.[o]?.getToken&&"IntlMessagesProxy"!==e.exports[o][Symbol.toStringTag]&&(token=e.exports[o].getToken())}catch{}}]),window.webpackChunkdiscord_app.pop(),token;"</code></b></li>
+                        </ol>
+                        <div style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--danger); font-weight: 600;">
+                            ⚠️ Never share this token with anyone. It acts as your account key!
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="status-emoji"><i class="fa-regular fa-face-smile"></i> Custom Emoji</label>
+                        <div class="input-wrapper">
+                            <i class="fa-regular fa-image"></i>
+                            <input type="text" id="status-emoji" placeholder="🎵">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="fallback-status"><i class="fa-solid fa-font"></i> Fallback Status</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-align-left"></i>
+                            <input type="text" id="fallback-status" placeholder="Listening to song...">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label><i class="fa-regular fa-clock"></i> Polling Interval (Seconds)</label>
+                    <div class="slider-container">
+                        <input type="range" id="check-interval" min="0.1" max="2.0" step="0.1" oninput="updateSliderVal('interval-val', this.value)">
+                        <span id="interval-val" class="slider-val">0.2s</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label><i class="fa-solid fa-bolt"></i> Latency Compensation (Seconds)</label>
+                    <div class="slider-container">
+                        <input type="range" id="latency-comp" min="0.0" max="1.5" step="0.05" oninput="updateSliderVal('latency-val', this.value)">
+                        <span id="latency-val" class="slider-val">0.25s</span>
+                    </div>
+                </div>
+
+                <div class="toggle-row">
+                    <label for="clear-on-pause"><i class="fa-regular fa-circle-pause"></i> Clear Status on Pause</label>
+                    <label class="switch">
+                        <input type="checkbox" id="clear-on-pause">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <button type="submit" class="btn-primary" id="save-btn"><i class="fa-regular fa-floppy-disk"></i> Save Configuration</button>
+            </form>
+        </div>
+
+        <!-- Right Column: Control & Live Stats -->
+        <div class="glass-card">
+            <h2 class="section-title"><i class="fa-solid fa-radio"></i> Dashboard & Controls</h2>
+            
+            <!-- Controls Start/Stop/Shutdown -->
+            <div id="control-buttons" style="display: flex; gap: 1rem; width: 100%;">
+                <button onclick="toggleService()" class="btn-success" id="toggle-btn" style="flex: 1;"><i class="fa-solid fa-play"></i> Start Syncing</button>
+                <button onclick="shutdownApp()" class="btn-danger" id="shutdown-btn" style="flex: 1;"><i class="fa-solid fa-power-off"></i> Close Application</button>
+            </div>
+
+            <!-- Now Playing details -->
+            <div class="now-playing-box" id="now-playing">
+                <div class="album-art-placeholder" id="album-art">
+                    <i class="fa-solid fa-music" id="album-art-icon"></i>
+                    <div class="vinyl-container" id="vinyl-container">
+                        <div class="vinyl-disc" id="vinyl-disc">
+                            <div class="vinyl-sheen"></div>
+                            <div class="vinyl-grooves"></div>
+                            <div class="vinyl-hole"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="track-details">
+                    <div class="track-title" id="track-title">Spotify Offline</div>
+                    <div class="track-artist" id="track-artist">Start playing a song on Windows</div>
+                    <div class="progress-container" id="progress-box" style="display:none;">
+                        <span id="progress-time">0:00</span>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="progress-fill"></div>
+                        </div>
+                        <span id="progress-duration">0:00</span>
+                    </div>
+                </div>
+                <div class="equalizer" id="eq-animation" style="display:none;">
+                    <div class="equalizer-bar"></div>
+                    <div class="equalizer-bar"></div>
+                    <div class="equalizer-bar"></div>
+                    <div class="equalizer-bar"></div>
+                    <div class="equalizer-bar"></div>
+                </div>
+            </div>
+
+            <!-- Active Lyric Display -->
+            <div class="lyrics-box">
+                <span class="lyrics-label"><i class="fa-solid fa-quote-left"></i> Current Discord Status <i class="fa-solid fa-quote-right"></i></span>
+                <span class="lyric-text empty" id="active-lyric">No lyrics showing</span>
+            </div>
+        </div>
+
+        <!-- Bottom Column: Console Log Panel -->
+        <div class="glass-card console-card">
+            <h2 class="section-title"><i class="fa-solid fa-terminal"></i> Console Logs</h2>
+            <div class="console-box" id="console">
+                <div class="console-line">Initializing Dashboard connection...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">
+        <i class="fa-solid fa-check"></i>
+        <span id="toast-text">Settings Saved</span>
+    </div>
+
+    <script>
+        // Global error logger to surface browser console errors directly to the Web UI
+        window.onerror = function(message, source, lineno, colno, error) {
+            const consoleBox = document.getElementById("console");
+            if (consoleBox) {
+                const div = document.createElement("div");
+                div.className = "console-line";
+                div.style.color = "var(--danger)";
+                div.textContent = `[JS Error] ${message} at line ${lineno}:${colno}`;
+                consoleBox.appendChild(div);
+            }
+            return false;
+        };
+
+        let isRunning = false;
+        let localProgress = 0;
+        let trackDuration = 0;
+        let progressInterval = null;
+
+        // Auto-run initialization
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchSettings();
+            setInterval(fetchStatus, 800); // Poll status every 800ms
+        });
+
+        // Form Range values update
+        function updateSliderVal(id, val) {
+            document.getElementById(id).textContent = val + "s";
+        }
+
+        // Notification Helper
+        function showToast(text, isError = false) {
+            const toast = document.getElementById("toast");
+            const icon = toast.querySelector("i");
+            const textSpan = document.getElementById("toast-text");
+            
+            textSpan.textContent = text;
+            if (isError) {
+                toast.classList.add("error");
+                icon.className = "fa-solid fa-circle-exclamation";
+            } else {
+                toast.classList.remove("error");
+                icon.className = "fa-solid fa-check";
+            }
+            
+            toast.classList.add("show");
+            setTimeout(() => {
+                toast.classList.remove("show");
+            }, 3000);
+        }
+
+        // Format duration seconds to mm:ss
+        function formatTime(secs) {
+            if (isNaN(secs) || secs < 0) return "0:00";
+            const m = Math.floor(secs / 60);
+            const s = Math.floor(secs % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function toggleHelp() {
+            const helpBox = document.getElementById("help-box");
+            helpBox.style.display = (helpBox.style.display === "none") ? "flex" : "none";
+        }
+
+        // Get Settings API
+        async function fetchSettings() {
+            try {
+                const response = await fetch("/api/settings");
+                const data = await response.json();
+                
+                document.getElementById("discord-token").value = data.DISCORD_TOKEN;
+                document.getElementById("status-emoji").value = data.STATUS_EMOJI;
+                document.getElementById("fallback-status").value = data.FALLBACK_STATUS;
+                
+                const interval = parseFloat(data.CHECK_INTERVAL_SECONDS);
+                document.getElementById("check-interval").value = interval;
+                updateSliderVal("interval-val", interval);
+                
+                const latency = parseFloat(data.LATENCY_COMPENSATION);
+                document.getElementById("latency-comp").value = latency;
+                updateSliderVal("latency-val", latency);
+                
+                document.getElementById("clear-on-pause").checked = data.CLEAR_ON_PAUSE === "True";
+            } catch (err) {
+                console.error("Error fetching settings:", err);
+            }
+        }
+
+        // Save Settings API
+        async function saveSettings(e) {
+            e.preventDefault();
+            const token = document.getElementById("discord-token").value.trim();
+            const emoji = document.getElementById("status-emoji").value.trim();
+            const fallback = document.getElementById("fallback-status").value.trim();
+            const interval = document.getElementById("check-interval").value;
+            const latency = document.getElementById("latency-comp").value;
+            const clearPause = document.getElementById("clear-on-pause").checked;
+
+            const payload = {
+                DISCORD_TOKEN: token,
+                STATUS_EMOJI: emoji,
+                FALLBACK_STATUS: fallback,
+                CHECK_INTERVAL_SECONDS: interval,
+                LATENCY_COMPENSATION: latency,
+                CLEAR_ON_PAUSE: clearPause
+            };
+
+            try {
+                const response = await fetch("/api/settings", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast("Configuration Saved!");
+                } else {
+                    showToast(result.error || "Save Failed", true);
+                }
+            } catch (err) {
+                showToast("Connection failed", true);
+            }
+        }
+
+        // Start/Stop Service API
+        async function toggleService() {
+            const action = isRunning ? "stop" : "start";
+            
+            try {
+                const response = await fetch("/api/control", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: action })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    isRunning = (action === "start");
+                    updateButtonState();
+                    showToast(isRunning ? "Syncing Started!" : "Syncing Stopped!");
+                } else {
+                    showToast(result.error || "Action failed", true);
+                }
+            } catch (err) {
+                showToast("Connection failed", true);
+            }
+        }
+
+        function updateButtonState() {
+            const btn = document.getElementById("toggle-btn");
+            const badge = document.getElementById("status-badge");
+            const statusText = document.getElementById("status-text");
+
+            if (isRunning) {
+                btn.className = "btn-danger";
+                btn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop Syncing';
+                badge.className = "status-badge running";
+                statusText.innerText = "Syncing Active";
+            } else {
+                btn.className = "btn-success";
+                btn.innerHTML = '<i class="fa-solid fa-play"></i> Start Syncing';
+                badge.className = "status-badge stopped";
+                statusText.innerText = "Stopped";
+            }
+        }
+
+        async function shutdownApp() {
+            if (!confirm("Are you sure you want to shut down and exit the entire application? This will stop syncing and close the server.")) {
+                return;
+            }
+            
+            try {
+                showToast("Shutting down app...", false);
+                const response = await fetch("/api/shutdown", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+                
+                // Disable all UI buttons
+                document.getElementById("toggle-btn").disabled = true;
+                document.getElementById("shutdown-btn").disabled = true;
+                document.getElementById("save-btn").disabled = true;
+                
+                // Update status badge to show disconnected
+                const badge = document.getElementById("status-badge");
+                const statusText = document.getElementById("status-text");
+                badge.className = "status-badge stopped";
+                statusText.innerText = "Disconnected";
+                
+                showToast("Application terminated. You can close this tab.", false);
+            } catch (err) {
+                // Connection fail is expected because server shuts down immediately
+                document.getElementById("toggle-btn").disabled = true;
+                document.getElementById("shutdown-btn").disabled = true;
+                document.getElementById("save-btn").disabled = true;
+                
+                const badge = document.getElementById("status-badge");
+                const statusText = document.getElementById("status-text");
+                badge.className = "status-badge stopped";
+                statusText.innerText = "Disconnected";
+                
+                showToast("Application terminated. You can close this tab.", false);
+            }
+        }
+
+        // Local progress bar updater to ensure fluid 60fps tracking between polls
+        function startLocalProgress(currentPos, maxDuration) {
+            clearInterval(progressInterval);
+            localProgress = currentPos;
+            trackDuration = maxDuration;
+            
+            document.getElementById("progress-time").textContent = formatTime(localProgress);
+            const fill = document.getElementById("progress-fill");
+            const pct = maxDuration > 0 ? (localProgress / maxDuration) * 100 : 0;
+            fill.style.width = `${pct}%`;
+
+            progressInterval = setInterval(() => {
+                if (localProgress < trackDuration) {
+                    localProgress += 0.25;
+                    document.getElementById("progress-time").textContent = formatTime(localProgress);
+                    const newPct = (localProgress / trackDuration) * 100;
+                    fill.style.width = `${newPct}%`;
+                } else {
+                    clearInterval(progressInterval);
+                }
+            }, 250);
+        }
+
+
+
+        // Get Status API
+        async function fetchStatus() {
+            try {
+                const response = await fetch("/api/status");
+                const state = await response.json();
+                
+                // Update running states
+                isRunning = state.running;
+                updateButtonState();
+                
+                // Update Badge color based on Spotify state
+                const badge = document.getElementById("status-badge");
+                const statusText = document.getElementById("status-text");
+                if (isRunning) {
+                    if (state.spotify_active) {
+                        badge.className = "status-badge running";
+                        statusText.innerText = "Syncing Active";
+                    } else {
+                        badge.className = "status-badge pending";
+                        statusText.innerText = "Waiting for Spotify";
+                    }
+                }
+                
+                // Update Now Playing Info
+                const nowPlaying = state.track_info;
+                const eq = document.getElementById("eq-animation");
+                const progressBox = document.getElementById("progress-box");
+                const albumArt = document.getElementById("album-art");
+                const albumArtIcon = document.getElementById("album-art-icon");
+                const vinylContainer = document.getElementById("vinyl-container");
+                const vinylDisc = document.getElementById("vinyl-disc");
+                
+                if (state.spotify_active && nowPlaying) {
+                    document.getElementById("track-title").textContent = nowPlaying.title;
+                    document.getElementById("track-artist").textContent = nowPlaying.artist;
+                    document.getElementById("progress-duration").textContent = formatTime(nowPlaying.duration);
+                    
+                    progressBox.style.display = "flex";
+                    
+                    // Show equalizer container and toggle active animation state
+                    eq.style.display = "flex";
+                    if (nowPlaying.is_playing) {
+                        eq.classList.add("active");
+                    } else {
+                        eq.classList.remove("active");
+                    }
+                    
+                    // Show vinyl record and hide default icon
+                    albumArt.classList.add("active-track");
+                    albumArtIcon.style.opacity = "0";
+                    albumArtIcon.style.transform = "scale(0.8)";
+                    vinylContainer.style.display = "flex";
+                    setTimeout(() => {
+                        vinylContainer.classList.add("show");
+                    }, 10);
+                    
+                    // Spin/pause vinyl record
+                    if (nowPlaying.is_playing) {
+                        vinylDisc.classList.add("spinning");
+                    } else {
+                        vinylDisc.classList.remove("spinning");
+                    }
+                    
+                    // Update artwork on the picture disc from the backend URL
+                    if (vinylDisc) {
+                        if (nowPlaying.artwork_url) {
+                            vinylDisc.style.backgroundImage = `url('${nowPlaying.artwork_url}')`;
+                        } else {
+                            vinylDisc.style.backgroundImage = "none";
+                        }
+                    }
+
+                    if (nowPlaying.is_playing) {
+                        startLocalProgress(nowPlaying.position, nowPlaying.duration);
+                    } else {
+                        clearInterval(progressInterval);
+                        document.getElementById("progress-time").textContent = formatTime(nowPlaying.position);
+                        const pct = nowPlaying.duration > 0 ? (nowPlaying.position / nowPlaying.duration) * 100 : 0;
+                        document.getElementById("progress-fill").style.width = `${pct}%`;
+                    }
+                } else {
+                    clearInterval(progressInterval);
+                    document.getElementById("track-title").textContent = isRunning ? "Spotify Inactive" : "Offline";
+                    document.getElementById("track-artist").textContent = isRunning ? "Play a song on Windows to sync..." : "Start service to see playback stats";
+                    progressBox.style.display = "none";
+                    
+                    // Hide equalizer and deactivate animation
+                    eq.style.display = "none";
+                    eq.classList.remove("active");
+                    
+                    // Hide vinyl record and show default icon
+                    albumArt.classList.remove("active-track");
+                    albumArtIcon.style.opacity = "1";
+                    albumArtIcon.style.transform = "scale(1)";
+                    vinylContainer.classList.remove("show");
+                    vinylDisc.classList.remove("spinning");
+                    setTimeout(() => {
+                        if (!albumArt.classList.contains("active-track")) {
+                            vinylContainer.style.display = "none";
+                        }
+                    }, 300);
+                    
+                    // Reset vinyl album art to default
+                    if (vinylDisc) {
+                        vinylDisc.style.backgroundImage = "none";
+                    }
+                }
+                
+                // Update Lyric Text
+                const lyricEl = document.getElementById("active-lyric");
+                const currentLyric = state.active_lyric;
+                if (currentLyric) {
+                    const emoji = document.getElementById("status-emoji").value.trim() || '🎵';
+                    lyricEl.textContent = `${emoji} ${currentLyric}`;
+                    lyricEl.className = "lyric-text";
+                } else {
+                    lyricEl.textContent = isRunning ? "Lyrics matching..." : "Sync loop stopped";
+                    lyricEl.className = "lyric-text empty";
+                }
+                
+                // Update Console Logs
+                const consoleBox = document.getElementById("console");
+                const isScrolledToBottom = consoleBox.scrollHeight - consoleBox.clientHeight <= consoleBox.scrollTop + 10;
+                
+                consoleBox.innerHTML = "";
+                state.logs.forEach(line => {
+                    const div = document.createElement("div");
+                    div.className = "console-line";
+                    div.textContent = line;
+                    consoleBox.appendChild(div);
+                });
+                
+                if (isScrolledToBottom) {
+                    consoleBox.scrollTop = consoleBox.scrollHeight;
+                }
+            } catch (err) {
+                console.error("Error polling status:", err);
+                const consoleBox = document.getElementById("console");
+                if (consoleBox) {
+                    const div = document.createElement("div");
+                    div.className = "console-line";
+                    div.style.color = "var(--danger)";
+                    div.textContent = `[JS Error] Polling error: ${err.message || err}`;
+                    consoleBox.appendChild(div);
+                }
+            }
+        }
+        
+        function varCSS(name) {
+            return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        }
+    </script>
+</body>
+</html>
