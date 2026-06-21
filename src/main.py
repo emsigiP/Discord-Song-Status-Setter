@@ -130,36 +130,34 @@ def fetch_lyrics(artist, title, album, duration):
         log_message(f"[Lyrics Error] Fetch failed: {e}")
         return ("FAILED", None)
 
-async def fetch_track_resources(artist, title, album, duration):
+async def fetch_and_apply_artwork(artist, title):
     """
-    Asynchronously fetches track cover art and lyrics in background threads.
+    Asynchronously fetches track cover art in a background thread and updates shared state.
     """
     try:
-        # Start fetching artwork URL instantly in a thread
-        artwork_task = asyncio.to_thread(fetch_artwork_url, artist, title)
-        
-        # Debounce the lyrics lookup by waiting 0.4 seconds non-blockingly
-        await asyncio.sleep(0.4)
-        
-        # Start fetching lyrics in a thread
-        lyrics_task = asyncio.to_thread(fetch_lyrics, artist, title, album, duration)
-        
-        # Wait for both to complete
-        artwork_url = await artwork_task
-        
-        # Update shared state with artwork if the track is still current
+        artwork_url = await asyncio.to_thread(fetch_artwork_url, artist, title)
         with state_lock:
             track_info = shared_state["track_info"]
             if track_info and track_info["title"] == title and track_info["artist"] == artist:
                 track_info["artwork_url"] = artwork_url
-                
-        state, lrc_text = await lyrics_task
-        return state, lrc_text
-        
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        log_message(f"[Fetch Error] Background task failed: {e}")
+        print(f"[Artwork Fetch Error] {e}")
+
+async def fetch_and_apply_lyrics(artist, title, album, duration):
+    """
+    Asynchronously fetches lyrics in a background thread after a tiny debounce.
+    """
+    try:
+        # Debounce to prevent API spamming when skipping tracks rapidly
+        await asyncio.sleep(0.3)
+        state, lrc_text = await asyncio.to_thread(fetch_lyrics, artist, title, album, duration)
+        return state, lrc_text
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        log_message(f"[Lyrics Fetch Error] {e}")
         return "FAILED", None
 
 async def discord_status_updater(discord_token):
@@ -226,7 +224,8 @@ async def sync_loop():
     current_artwork_url = ""
     
     parsed_lyrics = []
-    current_fetch_task = None
+    lyrics_fetch_task = None
+    artwork_fetch_task = None
     last_retry_time = 0.0
     
     session = None
@@ -278,10 +277,10 @@ async def sync_loop():
             is_playing = track_info["is_playing"]
             
             # Check if background lyrics fetch has completed
-            if current_fetch_task and current_fetch_task.done():
+            if lyrics_fetch_task and lyrics_fetch_task.done():
                 try:
-                    if not current_fetch_task.cancelled():
-                        state, lrc_text = current_fetch_task.result()
+                    if not lyrics_fetch_task.cancelled():
+                        state, lrc_text = lyrics_fetch_task.result()
                         with state_lock:
                             shared_state["lyrics_state"] = state
                         if state == "SUCCESS" and lrc_text:
@@ -290,7 +289,7 @@ async def sync_loop():
                             last_retry_time = time.time()
                 except Exception as e:
                     log_message(f"[Fetch Result Error] {e}")
-                current_fetch_task = None
+                lyrics_fetch_task = None
 
             # Detect track change
             if title != last_track_title or artist != last_track_artist:
@@ -299,19 +298,24 @@ async def sync_loop():
                 last_track_artist = artist
                 current_artwork_url = ""
                 
-                # Cancel existing fetch task if active
-                if current_fetch_task and not current_fetch_task.done():
-                    current_fetch_task.cancel()
+                # Cancel existing fetch tasks if active
+                if lyrics_fetch_task and not lyrics_fetch_task.done():
+                    lyrics_fetch_task.cancel()
+                if artwork_fetch_task and not artwork_fetch_task.done():
+                    artwork_fetch_task.cancel()
                 
-                # Enter debounce/pending state and spawn non-blocking fetcher
+                # Enter debounce/pending state and spawn non-blocking fetchers
                 with state_lock:
                     shared_state["lyrics_state"] = "PENDING"
                     shared_state["active_lyric"] = ""
                 parsed_lyrics = []
                 last_set_status = None
                 
-                current_fetch_task = asyncio.create_task(
-                    fetch_track_resources(artist, title, album, duration)
+                lyrics_fetch_task = asyncio.create_task(
+                    fetch_and_apply_lyrics(artist, title, album, duration)
+                )
+                artwork_fetch_task = asyncio.create_task(
+                    fetch_and_apply_artwork(artist, title)
                 )
 
             # Retrieve background-loaded artwork URL if populated
@@ -338,12 +342,12 @@ async def sync_loop():
             state_now = shared_state["lyrics_state"]
             
             # Retry fetching lyrics on failure
-            if state_now == "FAILED" and (time.time() - last_retry_time >= 10.0) and not current_fetch_task:
+            if state_now == "FAILED" and (time.time() - last_retry_time >= 10.0) and not lyrics_fetch_task:
                 log_message(f"[Retry] Retrying lyrics fetch for '{title}'...")
                 with state_lock:
                     shared_state["lyrics_state"] = "PENDING"
-                current_fetch_task = asyncio.create_task(
-                    fetch_track_resources(artist, title, album, duration)
+                lyrics_fetch_task = asyncio.create_task(
+                    fetch_and_apply_lyrics(artist, title, album, duration)
                 )
                 
             # Read state again
