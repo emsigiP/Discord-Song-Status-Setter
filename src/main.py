@@ -36,6 +36,16 @@ shared_state = {
 state_lock = threading.Lock()
 sync_thread = None
 
+# Async Discord Custom Status update target state
+discord_target_status = None
+discord_target_emoji = None
+discord_current_status = None
+
+def set_target_discord_status(status, emoji):
+    global discord_target_status, discord_target_emoji
+    discord_target_status = status
+    discord_target_emoji = emoji
+
 def log_message(msg):
     """
     Logs messages to stdout and appends them to the shared state logs.
@@ -80,6 +90,9 @@ def fetch_lyrics(artist, title, album, duration):
     """
     import syncedlyrics
     
+    # Reload settings from env to dynamically respect provider choice
+    load_dotenv(get_env_path(), override=True)
+    
     # Load the configured provider from env
     provider_setting = os.getenv("LYRICS_PROVIDER", "auto").lower()
     
@@ -117,6 +130,71 @@ def fetch_lyrics(artist, title, album, duration):
         log_message(f"[Lyrics Error] Fetch failed: {e}")
         return ("FAILED", None)
 
+async def fetch_track_resources(artist, title, album, duration):
+    """
+    Asynchronously fetches track cover art and lyrics in background threads.
+    """
+    try:
+        # Start fetching artwork URL instantly in a thread
+        artwork_task = asyncio.to_thread(fetch_artwork_url, artist, title)
+        
+        # Debounce the lyrics lookup by waiting 0.4 seconds non-blockingly
+        await asyncio.sleep(0.4)
+        
+        # Start fetching lyrics in a thread
+        lyrics_task = asyncio.to_thread(fetch_lyrics, artist, title, album, duration)
+        
+        # Wait for both to complete
+        artwork_url = await artwork_task
+        
+        # Update shared state with artwork if the track is still current
+        with state_lock:
+            track_info = shared_state["track_info"]
+            if track_info and track_info["title"] == title and track_info["artist"] == artist:
+                track_info["artwork_url"] = artwork_url
+                
+        state, lrc_text = await lyrics_task
+        return state, lrc_text
+        
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        log_message(f"[Fetch Error] Background task failed: {e}")
+        return "FAILED", None
+
+async def discord_status_updater(discord_token):
+    """
+    Asynchronous background task to patch status changes without blocking the sync loop.
+    """
+    global discord_target_status, discord_target_emoji, discord_current_status
+    discord_current_status = ""  # Force initial update
+    
+    while True:
+        try:
+            if discord_target_status != discord_current_status:
+                status_to_set = discord_target_status
+                emoji_to_set = discord_target_emoji
+                
+                if status_to_set is None:
+                    # Clear status
+                    success = await asyncio.to_thread(clear_status, discord_token)
+                else:
+                    # Update status
+                    success = await asyncio.to_thread(update_status, discord_token, status_to_set, emoji_to_set)
+                
+                if success:
+                    discord_current_status = status_to_set
+                else:
+                    # Sleep 1s on failure/rate-limit before retrying
+                    await asyncio.sleep(1.0)
+            else:
+                await asyncio.sleep(0.05)  # Fast check interval
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[Discord Updater Exception] {e}")
+            await asyncio.sleep(1.0)
+
 async def sync_loop():
     """
     Core sync loop running in background.
@@ -138,7 +216,7 @@ async def sync_loop():
         return
 
     log_message("==================================================")
-    log_message(" Spotify Lyrics Status Sync loop started")
+    log_message(" Spotify Lyrics Status Sync loop started (Async)")
     log_message(f" Polling interval: {check_interval}s | Latency comp: {latency_compensation}s")
     log_message("==================================================")
 
@@ -148,9 +226,7 @@ async def sync_loop():
     current_artwork_url = ""
     
     parsed_lyrics = []
-    
-    pending_track = None
-    track_changed_time = 0.0
+    current_fetch_task = None
     last_retry_time = 0.0
     
     session = None
@@ -160,6 +236,9 @@ async def sync_loop():
         shared_state["running"] = True
         shared_state["active_lyric"] = ""
         shared_state["lyrics_state"] = "NOT_FOUND"
+
+    # Start the async Discord status updater worker
+    updater_task = asyncio.create_task(discord_status_updater(discord_token))
 
     while True:
         # Check if thread should terminate
@@ -177,7 +256,7 @@ async def sync_loop():
                         shared_state["track_info"] = None
                     if last_set_status is not None:
                         log_message("[System] Spotify not found. Clearing Discord status...")
-                        clear_status(discord_token)
+                        set_target_discord_status(None, None)
                         last_set_status = None
                     await asyncio.sleep(2.0)
                     continue
@@ -198,24 +277,47 @@ async def sync_loop():
             duration = track_info["duration"]
             is_playing = track_info["is_playing"]
             
+            # Check if background lyrics fetch has completed
+            if current_fetch_task and current_fetch_task.done():
+                try:
+                    if not current_fetch_task.cancelled():
+                        state, lrc_text = current_fetch_task.result()
+                        with state_lock:
+                            shared_state["lyrics_state"] = state
+                        if state == "SUCCESS" and lrc_text:
+                            parsed_lyrics = parse_lrc(lrc_text)
+                        elif state == "FAILED":
+                            last_retry_time = time.time()
+                except Exception as e:
+                    log_message(f"[Fetch Result Error] {e}")
+                current_fetch_task = None
+
             # Detect track change
             if title != last_track_title or artist != last_track_artist:
                 log_message(f"[Track Changed] Now Playing: '{title}' by '{artist}'")
                 last_track_title = title
                 last_track_artist = artist
+                current_artwork_url = ""
                 
-                # Fetch artwork URL
-                current_artwork_url = fetch_artwork_url(artist, title)
+                # Cancel existing fetch task if active
+                if current_fetch_task and not current_fetch_task.done():
+                    current_fetch_task.cancel()
                 
-                # Enter debounce state
-                pending_track = (artist, title, album, duration)
-                track_changed_time = time.time()
+                # Enter debounce/pending state and spawn non-blocking fetcher
                 with state_lock:
                     shared_state["lyrics_state"] = "PENDING"
                     shared_state["active_lyric"] = ""
                 parsed_lyrics = []
                 last_set_status = None
+                
+                current_fetch_task = asyncio.create_task(
+                    fetch_track_resources(artist, title, album, duration)
+                )
 
+            # Retrieve background-loaded artwork URL if populated
+            with state_lock:
+                if shared_state["track_info"] and shared_state["track_info"].get("artwork_url"):
+                    current_artwork_url = shared_state["track_info"]["artwork_url"]
             track_info["artwork_url"] = current_artwork_url
 
             with state_lock:
@@ -226,34 +328,24 @@ async def sync_loop():
             if not is_playing:
                 if clear_on_pause and last_set_status is not None:
                     log_message(f"[System] Playback paused. Clearing Discord status...")
-                    clear_status(discord_token)
+                    set_target_discord_status(None, None)
                     last_set_status = None
                     with state_lock:
                         shared_state["active_lyric"] = ""
                 await asyncio.sleep(check_interval)
                 continue
                 
-            # Decide if we fetch lyrics
-            should_fetch = False
             state_now = shared_state["lyrics_state"]
             
-            if state_now == "PENDING" and (time.time() - track_changed_time >= 1.5):
-                should_fetch = True
-            elif state_now == "FAILED" and (time.time() - last_retry_time >= 10.0):
+            # Retry fetching lyrics on failure
+            if state_now == "FAILED" and (time.time() - last_retry_time >= 10.0) and not current_fetch_task:
                 log_message(f"[Retry] Retrying lyrics fetch for '{title}'...")
-                should_fetch = True
-                
-            if should_fetch and pending_track:
-                artist_p, title_p, album_p, duration_p = pending_track
-                state, lrc_text = fetch_lyrics(artist_p, title_p, album_p, duration_p)
                 with state_lock:
-                    shared_state["lyrics_state"] = state
+                    shared_state["lyrics_state"] = "PENDING"
+                current_fetch_task = asyncio.create_task(
+                    fetch_track_resources(artist, title, album, duration)
+                )
                 
-                if state == "SUCCESS" and lrc_text:
-                    parsed_lyrics = parse_lrc(lrc_text)
-                elif state == "FAILED":
-                    last_retry_time = time.time()
-            
             # Read state again
             state_now = shared_state["lyrics_state"]
             
@@ -265,9 +357,8 @@ async def sync_loop():
                     
                 if active_lyric and active_lyric != last_set_status:
                     log_message(f"[Sync] {active_lyric}")
-                    success = update_status(discord_token, active_lyric, status_emoji)
-                    if success:
-                        last_set_status = active_lyric
+                    set_target_discord_status(active_lyric, status_emoji)
+                    last_set_status = active_lyric
             elif state_now == "PENDING":
                 fallback_text = f"{title} - {artist}"
                 if len(fallback_text) > 128:
@@ -277,9 +368,8 @@ async def sync_loop():
                     
                 if fallback_text != last_set_status:
                     log_message(f"[Sync Fallback] {fallback_text}")
-                    success = update_status(discord_token, fallback_text, status_emoji)
-                    if success:
-                        last_set_status = fallback_text
+                    set_target_discord_status(fallback_text, status_emoji)
+                    last_set_status = fallback_text
             else:
                 # FAILED or NOT_FOUND
                 fallback_text = fallback_status_pattern if fallback_status_pattern else f"{title} - {artist}"
@@ -290,9 +380,8 @@ async def sync_loop():
                     
                 if fallback_text != last_set_status:
                     log_message(f"[Sync Fallback] {fallback_text}")
-                    success = update_status(discord_token, fallback_text, status_emoji)
-                    if success:
-                        last_set_status = fallback_text
+                    set_target_discord_status(fallback_text, status_emoji)
+                    last_set_status = fallback_text
                         
             await asyncio.sleep(check_interval)
             
@@ -303,6 +392,11 @@ async def sync_loop():
 
     # Clean up status on loop exit
     log_message("[System] Loop stopped. Clearing Discord status...")
+    try:
+        updater_task.cancel()
+        await updater_task
+    except Exception:
+        pass
     try:
         clear_status(discord_token)
     except Exception:
