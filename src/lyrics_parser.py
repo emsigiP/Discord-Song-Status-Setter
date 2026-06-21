@@ -52,7 +52,7 @@ def is_fake_sync(parsed_lines):
     Detects if a synced lyric file is bot-generated (evenly spaced or fake).
     Returns True if it is fake, False otherwise.
     """
-    if len(parsed_lines) < 5:
+    if len(parsed_lines) < 10:
         return False
     
     diffs = []
@@ -61,19 +61,33 @@ def is_fake_sync(parsed_lines):
         diffs.append(diff)
         
     consecutive_matches = 0
+    max_consecutive = 0
     for i in range(len(diffs) - 1):
-        # If consecutive differences are identical down to 0.05 seconds
         if abs(diffs[i] - diffs[i+1]) < 0.05:
             consecutive_matches += 1
-            if consecutive_matches >= 3:
-                return True
+            if consecutive_matches > max_consecutive:
+                max_consecutive = consecutive_matches
         else:
             consecutive_matches = 0
             
-    # Check variance
+    # Calculate percentage of identical intervals
+    identical_count = 0
+    for i in range(len(diffs)):
+        for j in range(i + 1, len(diffs)):
+            if abs(diffs[i] - diffs[j]) < 0.05:
+                identical_count += 1
+                break
+    pct_identical = identical_count / len(diffs) if diffs else 0
+    
+    # Calculate variance
     mean_diff = sum(diffs) / len(diffs)
     variance = sum((d - mean_diff) ** 2 for d in diffs) / len(diffs)
-    if variance < 0.2:
+    
+    # A song is fake sync if it has a large number of consecutive identical intervals (e.g. >= 8)
+    # or if the variance is extremely small (e.g. < 0.15) and a high percentage of intervals match
+    if max_consecutive >= 8:
+        return True
+    if variance < 0.15 and pct_identical > 0.6:
         return True
         
     return False
