@@ -4,3 +4,5 @@ winrt-Windows.Foundation.Collections
 requests
 python-dotenv
 flask
+syncedlyrics
+rapidfuzz

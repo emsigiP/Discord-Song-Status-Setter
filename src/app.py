@@ -154,7 +154,8 @@ def get_current_settings():
         "CHECK_INTERVAL_SECONDS": os.getenv("CHECK_INTERVAL_SECONDS", "0.2"),
         "CLEAR_ON_PAUSE": os.getenv("CLEAR_ON_PAUSE", "True"),
         "FALLBACK_STATUS": os.getenv("FALLBACK_STATUS", ""),
-        "LATENCY_COMPENSATION": os.getenv("LATENCY_COMPENSATION", "0.25")
+        "LATENCY_COMPENSATION": os.getenv("LATENCY_COMPENSATION", "0.25"),
+        "LYRICS_PROVIDER": os.getenv("LYRICS_PROVIDER", "auto")
     }
 
 # Helper to save settings back to .env
@@ -229,7 +230,8 @@ def api_settings():
             "CHECK_INTERVAL_SECONDS": str(data.get("CHECK_INTERVAL_SECONDS", "0.2")),
             "CLEAR_ON_PAUSE": "True" if data.get("CLEAR_ON_PAUSE") else "False",
             "FALLBACK_STATUS": data.get("FALLBACK_STATUS", "").strip(),
-            "LATENCY_COMPENSATION": str(data.get("LATENCY_COMPENSATION", "0.25"))
+            "LATENCY_COMPENSATION": str(data.get("LATENCY_COMPENSATION", "0.25")),
+            "LYRICS_PROVIDER": data.get("LYRICS_PROVIDER", "auto").strip()
         }
         
         if not settings["DISCORD_TOKEN"]:

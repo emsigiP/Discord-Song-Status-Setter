@@ -76,72 +76,42 @@ def fetch_artwork_url(artist, title):
 
 def fetch_lyrics(artist, title, album, duration):
     """
-    Fetches synced lyrics from LRCLIB.
+    Fetches synced lyrics from the configured provider using syncedlyrics.
     """
-    headers = {
-        "User-Agent": "SpotifyLyricsSync/1.0 (https://github.com/user/spotify-lyrics-sync)"
-    }
+    import syncedlyrics
     
-    search_url = "https://lrclib.net/api/search"
+    # Load the configured provider from env
+    provider_setting = os.getenv("LYRICS_PROVIDER", "auto").lower()
+    
+    if provider_setting == "musixmatch":
+        providers = ["musixmatch"]
+    elif provider_setting == "lrclib":
+        providers = ["lrclib"]
+    elif provider_setting == "netease":
+        providers = ["netease"]
+    else:  # auto
+        providers = ["musixmatch", "lrclib", "netease"]
+        
     query = f"{artist} {title}"
     
     try:
-        response = requests.get(search_url, params={"q": query}, headers=headers, timeout=5)
-        if response.status_code == 200:
-            results = response.json()
-            if not results:
-                log_message(f"[Lyrics] No search results for '{title}' by '{artist}'")
+        # Request search via syncedlyrics
+        lrc_text = syncedlyrics.search(query, providers=providers)
+        if lrc_text:
+            parsed = parse_lrc(lrc_text)
+            if not parsed:
+                log_message(f"[Lyrics] Found lyrics for '{title}', but no timestamp sync data. Skipping.")
                 return ("NOT_FOUND", None)
                 
-            candidates = []
-            for item in results:
-                synced = item.get("syncedLyrics")
-                if not synced:
-                    continue
-                    
-                parsed = parse_lrc(synced)
-                fake = is_fake_sync(parsed)
-                
-                item_duration = item.get("duration", 0)
-                duration_diff = abs(item_duration - duration) if duration and item_duration else 999
-                
-                album_name = item.get("albumName", "")
-                album_match = (album.lower() in album_name.lower()) if album and album_name else False
-                
-                # Calculate penalty score
-                score = 0
-                if fake:
-                    score += 1000
-                    
-                score += duration_diff * 2
-                if not album_match:
-                    score += 10
-                    
-                candidates.append({
-                    "syncedLyrics": synced,
-                    "score": score,
-                    "fake": fake,
-                    "id": item.get("id"),
-                    "album": album_name,
-                    "duration": item_duration
-                })
-                
-            if not candidates:
-                log_message(f"[Lyrics] No synced lyrics available for '{title}'")
+            if is_fake_sync(parsed):
+                log_message(f"[Lyrics] Rejected fake sync pattern for '{title}'. Falling back.")
                 return ("NOT_FOUND", None)
                 
-            candidates.sort(key=lambda x: x["score"])
-            best = candidates[0]
-            
-            if best["fake"]:
-                log_message(f"[Lyrics] Rejected fake sync candidates for '{title}'. Falling back to title display.")
-                return ("NOT_FOUND", None)
-                
-            log_message(f"[Lyrics] Selected best match (ID: {best['id']}, Album: '{best['album']}', Score: {best['score']:.1f})")
-            return ("SUCCESS", best["syncedLyrics"])
+            log_message(f"[Lyrics] Synced lyrics matched successfully for '{title}' (Provider: {provider_setting})")
+            return ("SUCCESS", lrc_text)
         else:
-            log_message(f"[Lyrics Error] Search returned HTTP {response.status_code}")
-            return ("FAILED", None)
+            log_message(f"[Lyrics] No synced lyrics found for '{title}' using {provider_setting}")
+            return ("NOT_FOUND", None)
             
     except Exception as e:
         log_message(f"[Lyrics Error] Fetch failed: {e}")

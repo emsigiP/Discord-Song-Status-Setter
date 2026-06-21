@@ -248,7 +248,7 @@
             font-size: 1rem;
         }
 
-        input[type="text"], input[type="password"] {
+        input[type="text"], input[type="password"], select {
             width: 100%;
             padding: 0.75rem 1rem 0.75rem 2.75rem;
             background: rgba(255, 255, 255, 0.03);
@@ -260,7 +260,7 @@
             transition: all 0.3s ease;
         }
 
-        input[type="text"]:focus, input[type="password"]:focus {
+        input[type="text"]:focus, input[type="password"]:focus, select:focus {
             border-color: var(--primary);
             box-shadow: 0 0 12px rgba(139, 92, 246, 0.2);
             background: rgba(255, 255, 255, 0.06);
@@ -891,6 +891,19 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="lyrics-provider"><i class="fa-solid fa-music"></i> Synced Lyrics Provider</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-globe"></i>
+                        <select id="lyrics-provider">
+                            <option value="auto" style="background: #18181b; color: #fff;">Auto-fallback (Musixmatch -> Lrclib -> NetEase)</option>
+                            <option value="musixmatch" style="background: #18181b; color: #fff;">Musixmatch (Spotify Lyric Source)</option>
+                            <option value="lrclib" style="background: #18181b; color: #fff;">Lrclib (Open-source lyrics DB)</option>
+                            <option value="netease" style="background: #18181b; color: #fff;">NetEase Cloud Music</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
                     <label><i class="fa-regular fa-clock"></i> Polling Interval (Seconds)</label>
                     <div class="slider-container">
                         <input type="range" id="check-interval" min="0.1" max="2.0" step="0.1" oninput="updateSliderVal('interval-val', this.value)">
@@ -1065,6 +1078,10 @@
                 updateSliderVal("latency-val", latency);
                 
                 document.getElementById("clear-on-pause").checked = data.CLEAR_ON_PAUSE === "True";
+                
+                if (data.LYRICS_PROVIDER) {
+                    document.getElementById("lyrics-provider").value = data.LYRICS_PROVIDER;
+                }
             } catch (err) {
                 console.error("Error fetching settings:", err);
             }
@@ -1079,6 +1096,7 @@
             const interval = document.getElementById("check-interval").value;
             const latency = document.getElementById("latency-comp").value;
             const clearPause = document.getElementById("clear-on-pause").checked;
+            const provider = document.getElementById("lyrics-provider").value;
 
             const payload = {
                 DISCORD_TOKEN: token,
@@ -1086,7 +1104,8 @@
                 FALLBACK_STATUS: fallback,
                 CHECK_INTERVAL_SECONDS: interval,
                 LATENCY_COMPENSATION: latency,
-                CLEAR_ON_PAUSE: clearPause
+                CLEAR_ON_PAUSE: clearPause,
+                LYRICS_PROVIDER: provider
             };
 
             try {
